@@ -33,3 +33,16 @@ Broke / fixed (SPEC deviation):
 
 Check by hand:
 - Nothing visible yet. `npm run test:unit` shows 7 schema tests passing.
+
+## Phase 3: Pure logic + unit tests (done)
+Built:
+- `src/lib/score.ts` `hasWinner(scoreA, scoreB, target, winBy2)`.
+- `src/lib/elo.ts` `expectedScore`, `newRating` (K=32), `teamDeltas` (team rating = average, whole-number change per player).
+- `src/lib/balance.ts` `balanceTeams`: tries every N+N split (player 0 pinned to team A, 126 splits for 5v5) and keeps the smallest average gap.
+- `src/lib/logic.test.ts`: balance within 25 points, 11-9 win, 11-10 not a win with winBy2, equal ratings +16/-16, plus edge cases. Run with `npm run test:unit`.
+
+Broke / fixed:
+- Nothing broke.
+
+Check by hand:
+- Run `npm run test:unit` in the gotnext-kobi folder: all tests pass.
