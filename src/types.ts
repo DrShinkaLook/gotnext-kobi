@@ -44,4 +44,5 @@ export type Game = {
   winner?: 'A' | 'B'
   recap?: string
   recapTone: RecapTone
+  liveKey?: string
 }

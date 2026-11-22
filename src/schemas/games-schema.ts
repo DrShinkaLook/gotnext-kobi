@@ -37,7 +37,12 @@ export const gamesSchema: CollectionSchema = {
       interpretation: { kind: 'select', options: ['espn', 'trash-talk', 'stats'] },
       default: 'espn',
     },
+    // = courtId while live, `final:<gameId>` after. uniqueOn makes the room
+    // refuse a second live game on the same court, even if two people tap
+    // "Make teams" at the same moment.
+    { name: 'liveKey', storage: 'text', interpretation: 'plain' },
   ],
+  uniqueOn: ['liveKey'],
   ownerField: 'scorekeeperId',
   permissions: {
     '*': { read: false, create: false, update: false, delete: false },

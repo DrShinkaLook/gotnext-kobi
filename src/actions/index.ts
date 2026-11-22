@@ -1,5 +1,6 @@
 import { RECORD_NOT_FOUND, isTestAccountEmail, type ActionHandler, type ActionResult, type ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
+import { balanceTeams } from '../lib/balance'
 import type { Checkin, Court, Game, Player, QueueEntry } from '../types'
 
 // Server actions run as the app with RBAC off, so every action checks the
@@ -31,6 +32,20 @@ function text(value: unknown, max = 40): string {
 
 async function create(tools: ActionTools, collection: string, data: object, id?: string): Promise<string> {
   return must(await tools.create(collection, data as Record<string, unknown>, id)).recordId
+}
+
+function fail(error: string) {
+  return { success: false as const, error }
+}
+
+/** Current rating for each player id (1000 if the row is missing). */
+async function ratingsOf(tools: ActionTools, ids: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  for (const id of ids) {
+    const r = await tools.get<Player>('players', id)
+    map.set(id, r.success ? Number(r.data.record.data.rating) : 1000)
+  }
+  return map
 }
 
 export const actions: Record<string, ActionHandler<Env>> = {
@@ -67,6 +82,73 @@ export const actions: Record<string, ActionHandler<Env>> = {
     await create(tools, 'checkins', { courtId, playerId, checkedInAt: Math.floor(Date.now() / 1000) } satisfies Checkin)
     await create(tools, 'queue', { courtId, playerId, status: 'waiting' } satisfies QueueEntry)
     return { success: true, data: { playerId } }
+  }),
+
+  /**
+   * Starts a live game from the line. everyone-rotates: first 2N waiting,
+   * balanced by rating. winners-stay: last winners who are still here keep
+   * their team; the next waiting players are the challengers.
+   */
+  makeTeams: action(async ({ userId, params, tools }) => {
+    const courtId = text(params.courtId, 64)
+    const court = must(await tools.get<Court>('courts', courtId)).record.data
+    const n = Number(court.teamSize)
+
+    const checkins = must(await tools.query<Checkin>('checkins', { where: { courtId }, limit: 500 })).records
+    const here = new Set(checkins.map((c) => c.data.playerId))
+    if (!here.has(userId)) return fail('Check in at this court first')
+
+    const live = must(await tools.query<Game>('games', { where: { courtId, status: 'live' }, limit: 1 })).records
+    if (live.length > 0) return fail('A game is already live on this court')
+
+    const queue = must(
+      await tools.query<QueueEntry>('queue', { where: { courtId }, orderBy: 'createdAt', orderDir: 'asc', limit: 500 }),
+    ).records
+    const waiting = queue.filter((q) => q.data.status === 'waiting' && here.has(q.data.playerId))
+
+    let stayers: string[] = []
+    if (court.rotation === 'winners-stay') {
+      const finals = must(
+        await tools.query<Game>('games', { where: { courtId, status: 'final' }, orderBy: 'updatedAt', orderDir: 'desc', limit: 1 }),
+      ).records
+      const last = finals[0]?.data
+      if (last?.winner) {
+        const onCourt = new Set(queue.filter((q) => q.data.status === 'playing').map((q) => q.data.playerId))
+        const winners = last.winner === 'A' ? last.teamA : last.teamB
+        stayers = winners.filter((id) => here.has(id) && onCourt.has(id)).slice(0, n)
+      }
+    }
+
+    const needed = 2 * n - stayers.length
+    if (waiting.length < needed) return fail(`Need ${needed} players waiting in line, have ${waiting.length}`)
+    const picked = waiting.slice(0, needed).map((q) => q.data.playerId)
+
+    let teamA: string[]
+    let teamB: string[]
+    if (stayers.length > 0) {
+      const fill = n - stayers.length // fill any winner who left from the front of the line
+      teamA = [...stayers, ...picked.slice(0, fill)]
+      teamB = picked.slice(fill)
+    } else {
+      const ratings = await ratingsOf(tools, picked)
+      const split = balanceTeams(picked.map((id) => ({ id, rating: ratings.get(id) ?? 1000 })))
+      teamA = split.teamA.map((p) => p.id)
+      teamB = split.teamB.map((p) => p.id)
+    }
+
+    // liveKey + uniqueOn: if two makeTeams calls race, the room accepts only
+    // the first create, so the loser stops here before touching the queue.
+    const game: Game = { courtId, teamA, teamB, scoreA: 0, scoreB: 0, status: 'live', scorekeeperId: userId, recapTone: 'espn', liveKey: courtId }
+    const created = await tools.create('games', game)
+    if (!created.success) {
+      return fail(created.error.startsWith('Duplicate') ? 'A game is already live on this court' : created.error)
+    }
+
+    const pickedSet = new Set(picked)
+    for (const q of waiting) {
+      if (pickedSet.has(q.data.playerId)) must(await tools.update('queue', q.recordId, { status: 'playing' }))
+    }
+    return { success: true, data: { gameId: created.data.recordId } }
   }),
 
   /** Test cleanup: owner or @deepspace.test accounts only, and only rows named with the __test- prefix. */

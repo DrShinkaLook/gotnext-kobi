@@ -86,3 +86,16 @@ Broke / fixed:
 
 Check by hand:
 - Signed in, open GSU Rec, tap Check in, Join the line, add a guest. Open the same court in a second browser and watch it update.
+
+## Phase 6: Make teams (done, deployed)
+Built:
+- `makeTeams` action: caller must be checked in; refuses if a live game exists or not enough players are waiting. everyone-rotates takes the first 2N in line and balances with `balance.ts`; winners-stay keeps last game's winners who are still on court and takes the next waiting players as challengers (falls back to balancing for the first game). Creates the live game with `scorekeeperId = caller`, then marks those queue rows `playing`.
+- Double-tap guard: new `games.liveKey` column (= courtId while live) with `uniqueOn: ['liveKey']`. The room runs each write one at a time and refuses a duplicate, so a second simultaneous makeTeams can't create a second live game. Empty liveKey (old/final games) never collides because SQL `NULL = NULL` is false.
+- Court page: "Make teams" button and a live-game card with both teams, average ratings, score and "Open scoreboard" link.
+- Test: 6 in line on a 3v3 court, Alice and Bob call makeTeams at the same time; exactly one succeeds, the other gets "already live".
+
+Broke / fixed:
+- Nothing broke this phase.
+
+Check by hand:
+- Fill GSU Rec's line to 10 with guests and tap Make teams: two teams of 5 with close averages appear.

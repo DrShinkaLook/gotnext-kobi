@@ -63,3 +63,41 @@ test('Alice checks in and adds a guest; Bob sees both live', async ({ users }) =
     expect(cleaned.success).toBe(true)
   }
 })
+
+/** Alice and Bob check in and join the line, then Alice adds guests until `total` are waiting. */
+async function fillLine(alice: Page, bob: Page, courtId: string, tag: string, total: number) {
+  for (const page of [alice, bob]) {
+    if (!page.url().endsWith(`/court/${courtId}`)) await page.goto(`/court/${courtId}`)
+    await page.getByTestId('check-in').click()
+    await page.getByTestId('join-queue').click()
+    await expect(page.getByTestId('leave-queue')).toBeVisible()
+  }
+  for (let i = 1; i <= total - 2; i++) {
+    await alice.getByTestId('guest-name').fill(`${tag} G${i}`)
+    await alice.getByTestId('add-guest').click()
+    await expect(alice.getByTestId('queue-list').locator('li')).toHaveCount(2 + i)
+  }
+}
+
+test('Make teams pressed twice at once creates exactly one live game', async ({ users }) => {
+  const [alice, bob] = await users(['Alice', 'Bob'])
+  const tag = `__test-${Date.now()}__`
+  try {
+    const courtId = await createCourt(alice.page, `${tag} Court`)
+    await fillLine(alice.page, bob.page, courtId, tag, 6)
+
+    const results = await Promise.all([
+      action(alice.page, 'makeTeams', { courtId }),
+      action(bob.page, 'makeTeams', { courtId }),
+    ])
+    const ok = results.filter((r) => r.success)
+    expect(ok).toHaveLength(1)
+    expect(results.find((r) => !r.success)?.error).toMatch(/already live/)
+
+    await expect(bob.page.getByTestId('live-game')).toBeVisible()
+    await expect(bob.page.getByTestId('live-game')).toContainText('avg')
+    await expect(bob.page.getByTestId('queue-list')).toHaveCount(0)
+  } finally {
+    expect((await action(alice.page, 'cleanupTestData')).success).toBe(true)
+  }
+})

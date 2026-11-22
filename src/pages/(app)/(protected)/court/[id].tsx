@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth, useMutations, useQuery } from 'deepspace'
 import { Button, EmptyState, Input, useToast } from '@/components/ui'
 import { callAction } from '../../../../api'
-import type { Checkin, Court, Player, QueueEntry } from '../../../../types'
+import type { Checkin, Court, Game, Player, QueueEntry } from '../../../../types'
+import { average } from '../../../../lib/elo'
 
 export default function CourtPage() {
   const { id: courtId = '' } = useParams()
@@ -12,6 +13,7 @@ export default function CourtPage() {
   const players = useQuery<Player>('players')
   const checkins = useQuery<Checkin>('checkins', { where: { courtId }, orderBy: 'checkedInAt' })
   const queue = useQuery<QueueEntry>('queue', { where: { courtId }, orderBy: 'createdAt', orderDir: 'asc' })
+  const liveGames = useQuery<Game>('games', { where: { courtId, status: 'live' } })
   const checkinMut = useMutations<Checkin>('checkins')
   const queueMut = useMutations<QueueEntry>('queue')
 
@@ -33,6 +35,7 @@ export default function CourtPage() {
   const waiting = queue.records.filter((q) => q.data.status === 'waiting')
   const myQueue = queue.records.find((q) => q.data.playerId === userId)
   const ready = checkinMut.ready && queueMut.ready
+  const liveGame = liveGames.records[0]
 
   async function checkIn() {
     await checkinMut.create({ courtId, playerId: userId!, checkedInAt: Math.floor(Date.now() / 1000) })
@@ -61,6 +64,12 @@ export default function CourtPage() {
         <Button size="lg" className="h-14 w-full text-base" disabled={!ready} onClick={checkIn} data-testid="check-in">
           Check in
         </Button>
+      )}
+
+      {liveGame ? (
+        <LiveGameCard gameId={liveGame.recordId} game={liveGame.data} playerById={playerById} />
+      ) : (
+        myCheckin && <MakeTeams courtId={courtId} waiting={waiting.length} needed={2 * Number(court.data.teamSize)} />
       )}
 
       <Section title={`Got next (${waiting.length})`}>
@@ -122,6 +131,60 @@ export default function CourtPage() {
 
       {myCheckin && <AddGuest courtId={courtId} />}
     </Page>
+  )
+}
+
+function MakeTeams({ courtId, waiting, needed }: { courtId: string; waiting: number; needed: number }) {
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const navigate = useNavigate()
+
+  async function make() {
+    setBusy(true)
+    const res = await callAction<{ gameId: string }>('makeTeams', { courtId })
+    setBusy(false)
+    if (!res.success) return toast.error("Couldn't make teams", res.error)
+    navigate(`/game/${res.data.gameId}`)
+  }
+
+  return (
+    <div className="mt-4">
+      <Button size="lg" variant="secondary" className="h-14 w-full text-base" loading={busy} onClick={make} data-testid="make-teams">
+        Make teams
+      </Button>
+      {waiting < needed && (
+        <p className="mt-1 text-center text-xs text-muted-foreground">{needed} in line makes a full game ({waiting} now).</p>
+      )}
+    </div>
+  )
+}
+
+function LiveGameCard({ gameId, game, playerById }: { gameId: string; game: Game; playerById: Map<string, Player> }) {
+  const team = (ids: string[]) => ids.map((id) => playerById.get(id))
+  const avg = (ids: string[]) => Math.round(average(ids.map((id) => Number(playerById.get(id)?.rating ?? 1000))))
+  return (
+    <section className="mt-4 rounded-xl border-2 border-primary bg-card p-4" data-testid="live-game">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Live game</h2>
+        <span className="text-2xl font-bold tabular-nums">{game.scoreA} – {game.scoreB}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        {(['A', 'B'] as const).map((side) => {
+          const ids = side === 'A' ? game.teamA : game.teamB
+          return (
+            <div key={side}>
+              <div className="font-semibold">Team {side} · avg {avg(ids)}</div>
+              <ul className="mt-1 text-muted-foreground">
+                {team(ids).map((p, i) => <li key={ids[i]}>{p?.name ?? 'Player'}</li>)}
+              </ul>
+            </div>
+          )
+        })}
+      </div>
+      <Link to={`/game/${gameId}`} className="mt-4 flex h-12 items-center justify-center rounded-lg bg-primary font-medium text-primary-foreground" data-testid="open-game">
+        Open scoreboard
+      </Link>
+    </section>
   )
 }
 
