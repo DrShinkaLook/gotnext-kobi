@@ -45,4 +45,5 @@ export type Game = {
   recap?: string
   recapTone: RecapTone
   liveKey?: string
+  ratingChanges?: { A: number; B: number }
 }

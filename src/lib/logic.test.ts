@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { balanceTeams } from './balance'
 import { average, expectedScore, newRating, teamDeltas } from './elo'
 import { hasWinner } from './score'
+import { isTone, recapPrompt } from './recap'
 
 describe('balanceTeams', () => {
   const ratings = [850, 900, 950, 1000, 1020, 1050, 1100, 1150, 1200, 1250]
@@ -59,5 +60,15 @@ describe('elo', () => {
     const upset = teamDeltas([900], [1100], 'A')
     const expected = teamDeltas([1100], [900], 'A')
     expect(upset.a).toBeGreaterThan(expected.a)
+  })
+})
+
+describe('recapPrompt', () => {
+  it('sends only team names, score and rating changes', () => {
+    const { prompt } = recapPrompt(11, 9, 14, -14, 'espn')
+    expect(prompt).toContain('Team A 11, Team B 9')
+    expect(prompt).toContain('Team A +14, Team B -14')
+    expect(isTone('stats')).toBe(true)
+    expect(isTone('rude')).toBe(false)
   })
 })

@@ -113,3 +113,21 @@ Broke / fixed:
 
 Check by hand:
 - Open a live game in two browsers. Only the scorekeeper sees buttons; the other browser updates instantly and shows "2 watching now".
+
+## Phase 8: Finish, Elo, AI recap (done, deployed)
+Built:
+- `finishGame` action: scorekeeper only, game must be live, `hasWinner` must confirm a winner (11-10 with winBy2 is refused). Marks final + winner first, updates every player's rating with `teamDeltas` (K=32, team = average) plus wins/losses, stores `ratingChanges {A, B}` on the game, then requeues: players who left are removed from the line; everyone still here goes to the back (losers first); with winners-stay the winners stay on court.
+- AI recap: `createDeepSpaceAI(env, 'anthropic', { authToken: ctx.callerJwt })` + `generateText` from `ai`, model `claude-haiku-5-5` (cheapest Claude in the DeepSpace AI docs), `maxOutputTokens: 200`. `src/lib/recap.ts` builds the prompt from team names, score and rating changes only (no player names); system prompt asks for clean language. Any AI error is logged and the recap stays empty.
+- `regenerateRecap({gameId, tone})`: any player in the game (or its scorekeeper), final games only.
+- Game page: Finish button for the scorekeeper, per-team rating change, recap card with tone picker (ESPN / Trash talk / Stats) and Regenerate.
+- seedDemo now stores ratingChanges on the demo games and returns their ids.
+- Tests: 11-10 finish refused with "win by 2"; 11-9 finishes, both browsers see FINAL, rating changes and the recap card; all 6 players back in line.
+
+Broke / fixed:
+- Score test was flaky (Bob sometimes saw 10 instead of 11). Cause: `putConfirmed` resolves a moment before the live update re-renders, so a fast next tap added to the old score. Fix: remember the last value sent per team for 3 s and build on it.
+- A test run died with "Response has been disposed": the 30 s Playwright default ran out mid-cleanup. Set this spec's timeout to 90 s.
+- Recap in tests: `[recap] AI call failed: Payment Required`. Expected: AI is billed to the caller and test accounts have no credits. Proves AI failure doesn't block finishing.
+- Known limit: two finishGame calls by the same scorekeeper at the exact same instant could both pass the "live" check. The button is disabled while finishing; makeTeams has the hard room-level guard.
+
+Check by hand:
+- Finish a real game at 11-9 with your own account: ratings change and a recap appears in both browsers. Try 11-10: refused.

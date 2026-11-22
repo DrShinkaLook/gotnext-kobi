@@ -1,6 +1,10 @@
-import { RECORD_NOT_FOUND, isTestAccountEmail, type ActionHandler, type ActionResult, type ActionTools } from 'deepspace/worker'
+import { RECORD_NOT_FOUND, createDeepSpaceAI, isTestAccountEmail, type ActionHandler, type ActionResult, type ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
+import { generateText } from 'ai'
 import { balanceTeams } from '../lib/balance'
+import { teamDeltas } from '../lib/elo'
+import { isTone, recapPrompt, type Tone } from '../lib/recap'
+import { hasWinner } from '../lib/score'
 import type { Checkin, Court, Game, Player, QueueEntry } from '../types'
 
 // Server actions run as the app with RBAC off, so every action checks the
@@ -36,6 +40,19 @@ async function create(tools: ActionTools, collection: string, data: object, id?:
 
 function fail(error: string) {
   return { success: false as const, error }
+}
+
+/** Asks the cheapest Claude model for a short recap, billed to the caller. Returns '' on any failure. */
+async function writeRecap(env: Env, callerJwt: string, game: Game, ratingChanges: { A: number; B: number }, tone: Tone) {
+  try {
+    const ai = createDeepSpaceAI(env, 'anthropic', { authToken: callerJwt })
+    const { system, prompt } = recapPrompt(game.scoreA, game.scoreB, ratingChanges.A, ratingChanges.B, tone)
+    const { text: recap } = await generateText({ model: ai('claude-haiku-5-5'), system, prompt, maxOutputTokens: 200 })
+    return recap.trim()
+  } catch (e) {
+    console.warn('[recap] AI call failed:', e instanceof Error ? e.message : String(e))
+    return ''
+  }
 }
 
 /** Current rating for each player id (1000 if the row is missing). */
@@ -165,6 +182,79 @@ export const actions: Record<string, ActionHandler<Env>> = {
     return { success: true, data: { scorekeeperId: toUserId } }
   }),
 
+  /**
+   * Scorekeeper ends a live game once score.ts confirms a winner. Updates
+   * ratings (Elo, K=32, team = average), wins/losses, requeues players who are
+   * still here, then writes the AI recap. A failed recap never blocks finishing.
+   */
+  finishGame: action(async ({ userId, params, tools, env, callerJwt }) => {
+    const gameId = text(params.gameId, 64)
+    const game = must(await tools.get<Game>('games', gameId)).record.data
+    if (game.scorekeeperId !== userId) return fail('Only the scorekeeper can finish the game')
+    if (game.status !== 'live') return fail('This game is already over')
+    const court = must(await tools.get<Court>('courts', game.courtId)).record.data
+    const winner = hasWinner(game.scoreA, game.scoreB, Number(court.targetScore), !!court.winBy2)
+    if (!winner) {
+      return fail(`No winner yet: play to ${court.targetScore}${court.winBy2 ? ' and win by 2' : ''}`)
+    }
+
+    const ratings = await ratingsOf(tools, [...game.teamA, ...game.teamB])
+    const rated = (ids: string[]) => ids.map((id) => ratings.get(id) ?? 1000)
+    const { a, b } = teamDeltas(rated(game.teamA), rated(game.teamB), winner)
+    const ratingChanges = { A: a, B: b }
+
+    // Final first, so a second finish attempt is refused right away.
+    must(await tools.update('games', gameId, { status: 'final', winner, ratingChanges, liveKey: `final:${gameId}` }))
+
+    for (const [ids, delta, won] of [[game.teamA, a, winner === 'A'], [game.teamB, b, winner === 'B']] as const) {
+      for (const id of ids) {
+        const p = await tools.get<Player>('players', id)
+        if (!p.success) continue
+        const cur = p.data.record.data
+        must(await tools.update('players', id, {
+          rating: Number(cur.rating) + delta,
+          wins: Number(cur.wins) + (won ? 1 : 0),
+          losses: Number(cur.losses) + (won ? 0 : 1),
+        }))
+      }
+    }
+
+    // Requeue: anyone who left is removed from the line; everyone else goes to
+    // the back (losers first). With winners-stay, winners stay on court.
+    const here = new Set(
+      must(await tools.query<Checkin>('checkins', { where: { courtId: game.courtId }, limit: 500 })).records.map((c) => c.data.playerId),
+    )
+    const queue = must(await tools.query<QueueEntry>('queue', { where: { courtId: game.courtId }, limit: 500 })).records
+    const winners = winner === 'A' ? game.teamA : game.teamB
+    const losers = winner === 'A' ? game.teamB : game.teamA
+    const stay = court.rotation === 'winners-stay' ? new Set(winners) : new Set<string>()
+    for (const id of [...losers, ...winners]) {
+      if (stay.has(id) && here.has(id)) continue
+      const row = queue.find((q) => q.data.playerId === id)
+      if (row) must(await tools.remove('queue', row.recordId))
+      if (here.has(id)) await create(tools, 'queue', { courtId: game.courtId, playerId: id, status: 'waiting' } satisfies QueueEntry)
+    }
+
+    const recap = await writeRecap(env, callerJwt, { ...game, winner }, ratingChanges, isTone(game.recapTone) ? game.recapTone : 'espn')
+    if (recap) must(await tools.update('games', gameId, { recap }))
+    return { success: true, data: { winner, ratingChanges, recap } }
+  }),
+
+  /** Any player in a finished game (or its scorekeeper) can ask for a new recap, optionally in a new tone. */
+  regenerateRecap: action(async ({ userId, params, tools, env, callerJwt }) => {
+    const gameId = text(params.gameId, 64)
+    const game = must(await tools.get<Game>('games', gameId)).record.data
+    if (![...game.teamA, ...game.teamB, game.scorekeeperId].includes(userId)) {
+      return fail('Only players in this game can change the recap')
+    }
+    if (game.status !== 'final' || !game.ratingChanges) return fail('The game has to be finished first')
+    const tone = isTone(params.tone) ? params.tone : isTone(game.recapTone) ? game.recapTone : 'espn'
+    const recap = await writeRecap(env, callerJwt, game, game.ratingChanges, tone)
+    if (!recap) return fail("The recap writer didn't answer. Try again in a moment.")
+    must(await tools.update('games', gameId, { recap, recapTone: tone }))
+    return { success: true, data: { recap } }
+  }),
+
   /** Test cleanup: owner or @deepspace.test accounts only, and only rows named with the __test- prefix. */
   cleanupTestData: action(async ({ userId, env, tools }) => {
     const user = await tools.get<{ email?: string }>('users', userId)
@@ -224,13 +314,16 @@ export const actions: Record<string, ActionHandler<Env>> = {
     }
 
     const ids: string[] = []
+    const seedRatings = names.map((_, i) => Math.round(850 + (i * 400) / (names.length - 1))) // 850 to 1250
     for (const [i, name] of names.entries()) {
-      const rating = Math.round(850 + (i * 400) / (names.length - 1)) // 850 to 1250
-      ids.push(await create(tools, 'players', { name, isGuest: true, addedBy: userId, rating, ...record[i] } satisfies Player))
+      ids.push(await create(tools, 'players', { name, isGuest: true, addedBy: userId, rating: seedRatings[i], ...record[i] } satisfies Player))
     }
 
+    const gameIds: string[] = []
     for (const g of games) {
-      await create(tools, 'games', {
+      const { a, b } = teamDeltas(g.a.map((i) => seedRatings[i]), g.b.map((i) => seedRatings[i]), g.scoreA > g.scoreB ? 'A' : 'B')
+      gameIds.push(await create(tools, 'games', {
+        ratingChanges: { A: a, B: b },
         courtId,
         teamA: g.a.map((i) => ids[i]),
         teamB: g.b.map((i) => ids[i]),
@@ -241,9 +334,9 @@ export const actions: Record<string, ActionHandler<Env>> = {
         winner: g.scoreA > g.scoreB ? 'A' : 'B',
         recap: g.recap,
         recapTone: 'espn',
-      } satisfies Game)
+      } satisfies Game))
     }
 
-    return { success: true, data: { courtId, alreadySeeded: false } }
+    return { success: true, data: { courtId, gameIds, alreadySeeded: false } }
   }),
 }

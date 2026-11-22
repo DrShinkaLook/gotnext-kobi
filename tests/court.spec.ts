@@ -9,6 +9,8 @@ import { test, expect, loadAllTestAccounts } from 'deepspace/testing'
 
 const names = loadAllTestAccounts().map((a) => a.name)
 test.skip(!names.includes('Alice') || !names.includes('Bob'), 'Needs test accounts named Alice and Bob')
+// Two real browsers clicking through a whole game take longer than the 30 s default.
+test.describe.configure({ timeout: 90_000 })
 
 /** The signed-in user's JWT, fetched the same way the app's getAuthToken() does. */
 function tokenOf(page: Page): Promise<string> {
@@ -134,6 +136,49 @@ test('Scorekeeper taps +2, Bob sees it live, and Bob cannot change the score', a
     await alice.page.getByTestId('handoff').click()
     await expect(bob.page.getByTestId('B+1')).toBeVisible()
     await expect(alice.page.getByTestId('A+2')).toHaveCount(0)
+  } finally {
+    expect((await action(alice.page, 'cleanupTestData')).success).toBe(true)
+  }
+})
+
+async function tap(page: Page, testId: string, times: number) {
+  for (let i = 0; i < times; i++) await page.getByTestId(testId).click()
+}
+
+test('Finishing at 11-10 is refused; 11-9 finishes, moves ratings and requeues', async ({ users }) => {
+  const [alice, bob] = await users(['Alice', 'Bob'])
+  const tag = `__test-${Date.now()}__`
+  try {
+    const courtId = await createCourt(alice.page, `${tag} Court`)
+    await fillLine(alice.page, bob.page, courtId, tag, 6)
+    await alice.page.getByTestId('make-teams').click()
+    await alice.page.waitForURL(/\/game\/[^/]+$/)
+    const gameId = alice.page.url().split('/game/')[1]
+    await bob.page.goto(`/game/${gameId}`)
+
+    await tap(alice.page, 'A+2', 5)
+    await tap(alice.page, 'A+1', 1)
+    await tap(alice.page, 'B+2', 5)
+    await expect(bob.page.getByTestId('score-A')).toHaveText('11')
+    await expect(bob.page.getByTestId('score-B')).toHaveText('10')
+
+    const refused = await action(alice.page, 'finishGame', { gameId })
+    expect(refused.success).toBe(false)
+    expect(refused.error).toMatch(/win by 2/)
+
+    await tap(alice.page, 'B-1', 1)
+    await expect(alice.page.getByTestId('score-B')).toHaveText('9')
+    await alice.page.getByTestId('finish-game').click()
+
+    await expect(bob.page.getByText('FINAL')).toBeVisible()
+    await expect(bob.page.getByTestId('delta-A')).toContainText('+')
+    await expect(bob.page.getByTestId('delta-B')).toContainText('-')
+    await expect(bob.page.getByTestId('recap')).toBeVisible()
+    await expect(alice.page.getByTestId('A+2')).toBeDisabled()
+
+    // Everyone is still checked in, so all 6 are back in line.
+    await bob.page.goto(`/court/${courtId}`)
+    await expect(bob.page.getByTestId('queue-list').locator('li')).toHaveCount(6)
   } finally {
     expect((await action(alice.page, 'cleanupTestData')).success).toBe(true)
   }

@@ -37,6 +37,8 @@ export const gamesSchema: CollectionSchema = {
       interpretation: { kind: 'select', options: ['espn', 'trash-talk', 'stats'] },
       default: 'espn',
     },
+    // { A, B }: rating change each player on that team got when the game finished.
+    { name: 'ratingChanges', storage: 'text', interpretation: { kind: 'json' } },
     // = courtId while live, `final:<gameId>` after. uniqueOn makes the room
     // refuse a second live game on the same court, even if two people tap
     // "Make teams" at the same moment.
