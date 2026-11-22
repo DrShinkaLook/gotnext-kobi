@@ -151,6 +151,20 @@ export const actions: Record<string, ActionHandler<Env>> = {
     return { success: true, data: { gameId: created.data.recordId } }
   }),
 
+  /** The current scorekeeper hands the score buttons to a signed-in (non-guest) player in the game. */
+  handOffScorekeeper: action(async ({ userId, params, tools }) => {
+    const gameId = text(params.gameId, 64)
+    const toUserId = text(params.toUserId, 64)
+    const game = must(await tools.get<Game>('games', gameId)).record.data
+    if (game.scorekeeperId !== userId) return fail('Only the scorekeeper can hand off')
+    if (game.status !== 'live') return fail('This game is already over')
+    if (![...game.teamA, ...game.teamB].includes(toUserId)) return fail('Pick a player in this game')
+    const target = await tools.get<Player>('players', toUserId)
+    if (!target.success || target.data.record.data.isGuest) return fail("Guests can't keep score")
+    must(await tools.update('games', gameId, { scorekeeperId: toUserId }))
+    return { success: true, data: { scorekeeperId: toUserId } }
+  }),
+
   /** Test cleanup: owner or @deepspace.test accounts only, and only rows named with the __test- prefix. */
   cleanupTestData: action(async ({ userId, env, tools }) => {
     const user = await tools.get<{ email?: string }>('users', userId)

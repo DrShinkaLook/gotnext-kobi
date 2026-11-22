@@ -1,0 +1,146 @@
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { useAuth, useMutations, usePresenceRoom, useQuery } from 'deepspace'
+import { Button, EmptyState, useToast } from '@/components/ui'
+import { callAction } from '../../../../api'
+import type { Court, Game, Player } from '../../../../types'
+
+type Side = 'A' | 'B'
+
+export default function GamePage() {
+  const { id: gameId = '' } = useParams()
+  const { userId } = useAuth()
+  const games = useQuery<Game>('games', { orderBy: 'createdAt', orderDir: 'desc', limit: 500 })
+  const courts = useQuery<Court>('courts')
+  const players = useQuery<Player>('players')
+  const { peers, connected } = usePresenceRoom(`game:${gameId}`)
+  const { ready, putConfirmed } = useMutations<Game>('games')
+  const [saving, setSaving] = useState(false)
+  const toast = useToast()
+
+  // Local dev only: lets the Playwright spec try a direct score write as a
+  // non-scorekeeper, through the same call the score buttons use.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const w = window as unknown as { __gotnextTest?: { putGame: typeof putConfirmed } }
+    w.__gotnextTest = { putGame: putConfirmed }
+  }, [putConfirmed])
+
+  const record = games.records.find((g) => g.recordId === gameId)
+  if (games.status === 'loading') return <Page><p className="text-muted-foreground">Loading game…</p></Page>
+  if (games.status === 'error') return <Page><p role="alert" className="text-destructive">Couldn't load this game: {games.error}</p></Page>
+  if (!record) {
+    return (
+      <Page>
+        <EmptyState title="Game not found" description="It may have been removed." />
+        <Link to="/courts" className="mt-4 block text-center underline">Back to courts</Link>
+      </Page>
+    )
+  }
+
+  const game = record.data
+  const court = courts.records.find((c) => c.recordId === game.courtId)
+  const playerById = new Map(players.records.map((p) => [p.recordId, p.data]))
+  const nameOf = (id: string) => playerById.get(id)?.name ?? 'Player'
+  const isScorekeeper = game.scorekeeperId === userId
+  const isLive = game.status === 'live'
+  const watching = new Set(peers.map((p) => p.userId)).size + (connected ? 1 : 0)
+
+  async function bump(side: Side, delta: number) {
+    const field = side === 'A' ? 'scoreA' : 'scoreB'
+    setSaving(true)
+    try {
+      // Waits for the room to accept the write, so fast double taps never lose a point.
+      await putConfirmed(gameId, { [field]: Math.max(0, game[field] + delta) })
+    } catch (err) {
+      toast.error("Score didn't save", err instanceof Error ? err.message : undefined)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Page>
+      <header className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <Link to={`/court/${game.courtId}`} className="text-sm text-muted-foreground">← {court?.data.name ?? 'Court'}</Link>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={`rounded px-2 py-0.5 text-xs font-bold ${isLive ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground'}`}>
+              {isLive ? 'LIVE' : 'FINAL'}
+            </span>
+            {court && <span className="text-sm text-muted-foreground">to {court.data.targetScore}{court.data.winBy2 ? ', win by 2' : ''}</span>}
+          </div>
+        </div>
+        <div className="text-right text-sm text-muted-foreground" data-testid="watching">
+          <strong className="text-foreground">{watching}</strong> watching now
+        </div>
+      </header>
+
+      <div className="grid grid-cols-2 gap-3">
+        {(['A', 'B'] as const).map((side) => {
+          const score = side === 'A' ? game.scoreA : game.scoreB
+          const ids = side === 'A' ? game.teamA : game.teamB
+          const won = game.winner === side
+          return (
+            <section key={side} className={`rounded-xl border bg-card p-3 text-center ${won ? 'border-primary border-2' : 'border-border'}`}>
+              <h2 className="font-semibold">Team {side}{won ? ' 🏆' : ''}</h2>
+              <div className="my-2 text-7xl font-black tabular-nums" data-testid={`score-${side}`}>{score}</div>
+              {isScorekeeper && (
+                <div className="grid grid-cols-3 gap-2">
+                  {[1, 2, -1].map((d) => (
+                    <Button key={d} size="lg" variant={d < 0 ? 'outline' : 'default'} className="h-14 px-0 text-lg"
+                      disabled={!isLive || !ready || saving} onClick={() => bump(side, d)} data-testid={`${side}${d > 0 ? '+' : ''}${d}`}>
+                      {d > 0 ? `+${d}` : d}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <ul className="mt-3 text-sm text-muted-foreground">
+                {ids.map((id) => <li key={id}>{nameOf(id)}</li>)}
+              </ul>
+            </section>
+          )
+        })}
+      </div>
+
+      <p className="mt-4 text-center text-sm text-muted-foreground">
+        Scorekeeper: <strong className="text-foreground">{isScorekeeper ? 'you' : nameOf(game.scorekeeperId)}</strong>
+      </p>
+
+      {isScorekeeper && isLive && <HandOff gameId={gameId} game={game} playerById={playerById} me={userId!} />}
+    </Page>
+  )
+}
+
+function HandOff({ gameId, game, playerById, me }: { gameId: string; game: Game; playerById: Map<string, Player>; me: string }) {
+  const [to, setTo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const options = [...game.teamA, ...game.teamB].filter((id) => id !== me && playerById.get(id) && !playerById.get(id)!.isGuest)
+  if (options.length === 0) return null
+
+  async function handOff() {
+    setBusy(true)
+    const res = await callAction('handOffScorekeeper', { gameId, toUserId: to })
+    setBusy(false)
+    if (!res.success) return toast.error("Couldn't hand off", res.error)
+    toast.success('Scorekeeper handed off')
+  }
+
+  return (
+    <div className="mt-4 flex gap-2">
+      <select value={to} onChange={(e) => setTo(e.target.value)} aria-label="New scorekeeper"
+        className="h-12 flex-1 rounded-lg border border-input bg-background px-3" data-testid="handoff-select">
+        <option value="">Hand off scoring to…</option>
+        {options.map((id) => <option key={id} value={id}>{playerById.get(id)!.name}</option>)}
+      </select>
+      <Button size="lg" variant="outline" className="h-12" disabled={!to} loading={busy} onClick={handOff} data-testid="handoff">
+        Hand off
+      </Button>
+    </div>
+  )
+}
+
+function Page({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto w-full max-w-xl px-4 py-6">{children}</div>
+}

@@ -101,3 +101,40 @@ test('Make teams pressed twice at once creates exactly one live game', async ({ 
     expect((await action(alice.page, 'cleanupTestData')).success).toBe(true)
   }
 })
+
+test('Scorekeeper taps +2, Bob sees it live, and Bob cannot change the score', async ({ users }) => {
+  const [alice, bob] = await users(['Alice', 'Bob'])
+  const tag = `__test-${Date.now()}__`
+  try {
+    const courtId = await createCourt(alice.page, `${tag} Court`)
+    await fillLine(alice.page, bob.page, courtId, tag, 6)
+
+    await alice.page.getByTestId('make-teams').click()
+    await alice.page.waitForURL(/\/game\/[^/]+$/)
+    const gameId = alice.page.url().split('/game/')[1]
+    await bob.page.goto(`/game/${gameId}`)
+    await expect(bob.page.getByTestId('watching')).toContainText('2')
+
+    // Alice is the scorekeeper: her +2 reaches Bob live.
+    await alice.page.getByTestId('A+2').click()
+    await expect(bob.page.getByTestId('score-A')).toHaveText('2')
+
+    // Bob has no buttons, and a direct write is rejected by the room.
+    await expect(bob.page.getByTestId('A+2')).toHaveCount(0)
+    const outcome = await bob.page.evaluate(async (id) => {
+      const hook = (window as unknown as { __gotnextTest: { putGame: (id: string, patch: object) => Promise<void> } }).__gotnextTest
+      return hook.putGame(id, { scoreA: 99 }).then(() => 'accepted', (e: Error) => `rejected: ${e.message}`)
+    }, gameId)
+    expect(outcome).toMatch(/^rejected/)
+    await expect(bob.page.getByTestId('score-A')).toHaveText('2')
+    await expect(alice.page.getByTestId('score-A')).toHaveText('2')
+
+    // Hand off: now Bob gets the buttons.
+    await alice.page.getByTestId('handoff-select').selectOption({ label: 'Bob' })
+    await alice.page.getByTestId('handoff').click()
+    await expect(bob.page.getByTestId('B+1')).toBeVisible()
+    await expect(alice.page.getByTestId('A+2')).toHaveCount(0)
+  } finally {
+    expect((await action(alice.page, 'cleanupTestData')).success).toBe(true)
+  }
+})

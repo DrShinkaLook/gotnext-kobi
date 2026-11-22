@@ -99,3 +99,17 @@ Broke / fixed:
 
 Check by hand:
 - Fill GSU Rec's line to 10 with guests and tap Make teams: two teams of 5 with close averages appear.
+
+## Phase 7: Live scoreboard (done)
+Built:
+- `src/pages/(app)/(protected)/game/[id].tsx`: big live score for everyone, LIVE/FINAL badge, team lists, "watching now" from `usePresenceRoom(\`game:${id}\`)` (unique peers + you).
+- Scorekeeper-only +1/+2/-1 per team. They write `scoreA`/`scoreB` directly with `putConfirmed` on games (allowed by ownerField + writableFields). Buttons wait for the room's ack so fast double taps never drop a point; disabled when the game is final.
+- `handOffScorekeeper` action + picker: only the current scorekeeper, only to a signed-in non-guest player in the game, only while live.
+- Dev-only `window.__gotnextTest.putGame` (stripped from production builds by `import.meta.env.DEV`) so the spec can attempt a non-scorekeeper write through the same call.
+- Test: Alice taps +2, Bob sees 2; Bob has no buttons and his direct write is rejected (score stays 2 for both); 2 watching; hand-off gives Bob the buttons.
+
+Broke / fixed:
+- Nothing broke this phase.
+
+Check by hand:
+- Open a live game in two browsers. Only the scorekeeper sees buttons; the other browser updates instantly and shows "2 watching now".
