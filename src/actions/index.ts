@@ -1,6 +1,6 @@
-import { RECORD_NOT_FOUND, type ActionHandler, type ActionResult, type ActionTools } from 'deepspace/worker'
+import { RECORD_NOT_FOUND, isTestAccountEmail, type ActionHandler, type ActionResult, type ActionTools } from 'deepspace/worker'
 import type { Env } from '../../worker'
-import type { Court, Game, Player } from '../types'
+import type { Checkin, Court, Game, Player, QueueEntry } from '../types'
 
 // Server actions run as the app with RBAC off, so every action checks the
 // caller (ctx.userId) itself before writing anything.
@@ -45,6 +45,52 @@ export const actions: Record<string, ActionHandler<Env>> = {
     const player: Player = { name, isGuest: false, addedBy: userId, rating: 1000, wins: 0, losses: 0 }
     await create(tools, 'players', player, userId)
     return { success: true, data: { created: true } }
+  }),
+
+  /** Adds a guest who's checked in and in line. Caller must be checked in here; max 4 active guests each. */
+  addGuest: action(async ({ userId, params, tools }) => {
+    const courtId = text(params.courtId, 64)
+    const name = text(params.name, 40)
+    if (!courtId || !name) return { success: false, error: 'Court and guest name are required' }
+
+    const checkins = must(await tools.query<Checkin>('checkins', { where: { courtId }, limit: 500 })).records
+    if (!checkins.some((c) => c.data.playerId === userId)) {
+      return { success: false, error: 'Check in at this court before adding guests' }
+    }
+    const myGuests = must(await tools.query<Player>('players', { where: { addedBy: userId }, limit: 500 })).records
+    const myGuestIds = new Set(myGuests.filter((p) => p.data.isGuest).map((p) => p.recordId))
+    if (checkins.filter((c) => myGuestIds.has(c.data.playerId)).length >= 4) {
+      return { success: false, error: 'You can have at most 4 guests here' }
+    }
+
+    const playerId = await create(tools, 'players', { name, isGuest: true, addedBy: userId, rating: 1000, wins: 0, losses: 0 } satisfies Player)
+    await create(tools, 'checkins', { courtId, playerId, checkedInAt: Math.floor(Date.now() / 1000) } satisfies Checkin)
+    await create(tools, 'queue', { courtId, playerId, status: 'waiting' } satisfies QueueEntry)
+    return { success: true, data: { playerId } }
+  }),
+
+  /** Test cleanup: owner or @deepspace.test accounts only, and only rows named with the __test- prefix. */
+  cleanupTestData: action(async ({ userId, env, tools }) => {
+    const user = await tools.get<{ email?: string }>('users', userId)
+    const email = user.success ? user.data.record.data.email ?? '' : ''
+    if (userId !== env.OWNER_USER_ID && !isTestAccountEmail(email)) {
+      return { success: false, error: 'Only the owner or test accounts can clean up test data' }
+    }
+    let removed = 0
+    const remove = async (collection: string, ids: string[]) => {
+      for (const id of ids) if ((await tools.remove(collection, id)).success) removed++
+    }
+    const courts = must(await tools.query<Court>('courts', { limit: 500 })).records
+    for (const court of courts.filter((c) => c.data.name.startsWith('__test-'))) {
+      const where = { courtId: court.recordId }
+      for (const collection of ['games', 'queue', 'checkins']) {
+        await remove(collection, must(await tools.query(collection, { where, limit: 500 })).records.map((r) => r.recordId))
+      }
+      await remove('courts', [court.recordId])
+    }
+    const players = must(await tools.query<Player>('players', { limit: 1000 })).records
+    await remove('players', players.filter((p) => p.data.isGuest && p.data.name.startsWith('__test-')).map((p) => p.recordId))
+    return { success: true, data: { removed } }
   }),
 
   /** Owner only: GSU Rec court, 12 rated guests and 3 finished games. Safe to run twice. */

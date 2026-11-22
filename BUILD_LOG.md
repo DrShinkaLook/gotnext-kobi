@@ -66,3 +66,23 @@ Verified locally:
 
 Check by hand:
 - Sign in on the live site, open Courts, click "Seed demo data" once, see GSU Rec appear.
+
+## Phase 5: Court page (done)
+Built:
+- `src/pages/(app)/(protected)/court/[id].tsx` (generouted `[id]` = `/court/:id`): check in/out, "Got next" queue in createdAt order with join/leave, "Who's here" list, add-guest form. Big full-width buttons, loading/empty/not-found states.
+- `addGuest` action: caller must be checked in at that court, max 4 active guests per caller; creates guest player + checkin + queue row.
+- "Add a court" form on /courts (members may create courts per SPEC); needed so tests can make their own court.
+- `cleanupTestData` action: owner or `@deepspace.test` accounts only, deletes only `__test-` courts (and their games/queue/checkins) and `__test-` guests.
+- Test accounts Alice and Bob created early (`alice-b5b742@deepspace.test`, `bob-b5b742@deepspace.test`, passwords only in `~/.deepspace/test-accounts.json`).
+- `tests/court.spec.ts` part 1: Alice checks in, Bob sees her within 2 s; Alice adds a guest, Bob sees it in line.
+
+Broke / fixed:
+- Test emails `alice-1@deepspace.test` were taken (test emails are global); added a random suffix.
+- `deepspace test run` refuses while the preview owns port 5173; run with `DEEPSPACE_PORT=5180 npx playwright test tests/court.spec.ts --config tests/playwright.config.ts`.
+- Playwright had no browser; installed with `npx playwright install chromium --only-shell`.
+- Tried creating the test court via `/_deepspace/agent/tools/records_create`: rejects normal user JWTs (`unauthenticated`). Switched to the real "Add a court" form.
+- Guest name got cut at 24 chars; raised to 40.
+- Stray "0"s on screen: boolean columns read back as 0/1, and React renders `{0 && ...}` as "0". Fixed with `!!`.
+
+Check by hand:
+- Signed in, open GSU Rec, tap Check in, Join the line, add a guest. Open the same court in a second browser and watch it update.

@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { useQuery, useUser } from 'deepspace'
+import { useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth, useMutations, useQuery, useUser } from 'deepspace'
 import { Button, EmptyState, useToast } from '@/components/ui'
 import { callAction } from '../../api'
 import type { Checkin, Court, QueueEntry } from '../../types'
@@ -16,6 +16,7 @@ export default function CourtsPage() {
   const checkins = useQuery<Checkin>('checkins')
   const waiting = useQuery<QueueEntry>('queue', { where: { status: 'waiting' } })
   const { user } = useUser()
+  const { isSignedIn } = useAuth()
 
   const here = countByCourt(checkins.records)
   const inLine = countByCourt(waiting.records)
@@ -54,7 +55,72 @@ export default function CourtsPage() {
           </li>
         ))}
       </ul>
+
+      {isSignedIn && <NewCourt />}
     </div>
+  )
+}
+
+function NewCourt() {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const { ready, createConfirmed } = useMutations<Court>('courts')
+  const navigate = useNavigate()
+  const toast = useToast()
+
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const f = new FormData(e.currentTarget)
+    setBusy(true)
+    try {
+      const id = await createConfirmed({
+        name: String(f.get('name')).trim(),
+        location: String(f.get('location')).trim(),
+        teamSize: f.get('teamSize') as Court['teamSize'],
+        targetScore: Number(f.get('targetScore')),
+        winBy2: f.get('winBy2') === 'on',
+        rotation: f.get('rotation') as Court['rotation'],
+      })
+      navigate(`/court/${id}`)
+    } catch (err) {
+      toast.error("Couldn't add court", err instanceof Error ? err.message : undefined)
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return <Button variant="outline" className="mt-6 h-12 w-full" onClick={() => setOpen(true)} data-testid="new-court">Add a court</Button>
+  }
+  const field = 'h-11 w-full rounded-lg border border-input bg-background px-3'
+  return (
+    <form onSubmit={submit} className="mt-6 flex flex-col gap-3 rounded-xl border border-border bg-card p-4" data-testid="new-court-form">
+      <h2 className="text-lg font-semibold">Add a court</h2>
+      <input name="name" required maxLength={40} placeholder="Court name" aria-label="Court name" className={field} />
+      <input name="location" maxLength={80} placeholder="Where is it?" aria-label="Location" className={field} />
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-sm">Team size
+          <select name="teamSize" defaultValue="5" className={field}>
+            <option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option>
+          </select>
+        </label>
+        <label className="text-sm">Play to
+          <input name="targetScore" type="number" min={5} max={50} defaultValue={11} className={field} />
+        </label>
+      </div>
+      <label className="text-sm">After each game
+        <select name="rotation" defaultValue="everyone-rotates" className={field}>
+          <option value="everyone-rotates">Everyone rotates</option>
+          <option value="winners-stay">Winners stay</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input name="winBy2" type="checkbox" defaultChecked className="size-5" /> Win by 2
+      </label>
+      <div className="flex gap-2">
+        <Button type="submit" className="h-12 flex-1" loading={busy} disabled={!ready} data-testid="create-court">Create court</Button>
+        <Button type="button" variant="ghost" className="h-12" onClick={() => setOpen(false)}>Cancel</Button>
+      </div>
+    </form>
   )
 }
 
