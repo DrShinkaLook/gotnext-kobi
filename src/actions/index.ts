@@ -42,7 +42,7 @@ function fail(error: string) {
   return { success: false as const, error }
 }
 
-/** Asks the cheapest Claude model for a short recap, billed to the caller. Returns '' on any failure. */
+/** Asks the cheapest model in the DeepSpace AI docs for a short recap, billed to the caller. Returns '' on any failure. */
 async function writeRecap(env: Env, callerJwt: string, game: Game, ratingChanges: { A: number; B: number }, tone: Tone) {
   try {
     const ai = createDeepSpaceAI(env, 'anthropic', { authToken: callerJwt })

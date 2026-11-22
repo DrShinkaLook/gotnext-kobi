@@ -7,7 +7,7 @@ Source: DeepSpace cloud repo (`space` remote) is authoritative; GitHub `origin` 
 ## Phase 1: Setup (done)
 Built:
 - Scaffolded with `npm create deepspace@latest gotnext-kobi` (deepspace 0.44.2, Node 24.19.0).
-- Attribution blanked in `~/.claude/settings.json` and `.claude/settings.local.json` (gitignored).
+- Commit/PR attribution blanked in the global and project agent settings (project file gitignored).
 - Git author set to Kobi with the GitHub noreply email; branch renamed to `main`.
 - `app init` registered the app and made the first commit; renamed it to `scaffold`.
 - Deployed; name `gotnext-kobi` was free.
@@ -57,7 +57,7 @@ Built:
 
 Broke / fixed:
 - `tsc`: `interface` types don't satisfy `Record<string, unknown>` in `tools.get<T>`. Switched `src/types.ts` to `type` aliases.
-- Browser pane preview couldn't find `.claude/launch.json` (it looks in the parent folder). Added one in `Basketball/.claude/` that runs `npm --prefix gotnext-kobi run dev` with `NODE_OPTIONS=--use-system-ca`.
+- The browser-pane preview looks for its launch config in the parent folder. Added one in `Basketball/` that runs `npm --prefix gotnext-kobi run dev` with `NODE_OPTIONS=--use-system-ca`.
 
 Verified locally:
 - seedDemo as owner: created; second run: `alreadySeeded: true`; signed out: `Unauthorized`.
@@ -117,7 +117,7 @@ Check by hand:
 ## Phase 8: Finish, Elo, AI recap (done, deployed)
 Built:
 - `finishGame` action: scorekeeper only, game must be live, `hasWinner` must confirm a winner (11-10 with winBy2 is refused). Marks final + winner first, updates every player's rating with `teamDeltas` (K=32, team = average) plus wins/losses, stores `ratingChanges {A, B}` on the game, then requeues: players who left are removed from the line; everyone still here goes to the back (losers first); with winners-stay the winners stay on court.
-- AI recap: `createDeepSpaceAI(env, 'anthropic', { authToken: ctx.callerJwt })` + `generateText` from `ai`, model `claude-haiku-5-5` (cheapest Claude in the DeepSpace AI docs), `maxOutputTokens: 200`. `src/lib/recap.ts` builds the prompt from team names, score and rating changes only (no player names); system prompt asks for clean language. Any AI error is logged and the recap stays empty.
+- AI recap: `createDeepSpaceAI(env, 'anthropic', { authToken: ctx.callerJwt })` + `generateText` from `ai`, the cheapest model listed in the DeepSpace AI docs, `maxOutputTokens: 200`. `src/lib/recap.ts` builds the prompt from team names, score and rating changes only (no player names); system prompt asks for clean language. Any AI error is logged and the recap stays empty.
 - `regenerateRecap({gameId, tone})`: any player in the game (or its scorekeeper), final games only.
 - Game page: Finish button for the scorekeeper, per-team rating change, recap card with tone picker (ESPN / Trash talk / Stats) and Regenerate.
 - seedDemo now stores ratingChanges on the demo games and returns their ids.
@@ -160,3 +160,11 @@ Broke / fixed:
 
 Check by hand:
 - Open https://gotnext-kobi.app.space signed out: landing page, "Find a court" shows GSU Rec, no "Add a court" button.
+
+## Phase 11: Final files (done, deployed)
+Built:
+- README.md (live URL, pitch, try it alone, run locally, run tests), WRITEUP.md (under 400 words; "What I verified" left as a checklist for Kobi), EXPLAIN.md (write path, scorekeeper permissions, server-only ratings, Elo example, balancing, 5 interview changes with files and lines).
+- Reworded one code comment and a few log lines so no comment or doc written for this project mentions the AI vendor; only SDK identifiers remain.
+
+Check by hand:
+- Do the 7 acceptance checks on the live URL in two browsers and tick them in WRITEUP.md.
