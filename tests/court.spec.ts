@@ -183,3 +183,16 @@ test('Finishing at 11-10 is refused; 11-9 finishes, moves ratings and requeues',
     expect((await action(alice.page, 'cleanupTestData')).success).toBe(true)
   }
 })
+
+test('A signed-out visitor sees the landing page and cannot write', async ({ page, request }) => {
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: "Know who's got next." })).toBeVisible()
+  await page.getByTestId('find-court').click()
+  await expect(page.getByRole('heading', { name: 'Courts' })).toBeVisible()
+  await expect(page.getByTestId('new-court')).toHaveCount(0)
+
+  for (const name of ['ensurePlayer', 'addGuest', 'makeTeams', 'finishGame', 'seedDemo']) {
+    const res = await request.post(`/api/actions/${name}`, { data: {} })
+    expect(res.status(), name).toBe(401)
+  }
+})

@@ -144,3 +144,19 @@ Broke / fixed:
 
 Check by hand:
 - Signed in as owner, open Cron, tap "Add old check-in", see "Old timer" on GSU Rec, tap "Run now", and it disappears.
+
+## Phase 10: Polish + multi-user test (done, deployed)
+Built:
+- Landing page `/` (static, no auth/data): design-direction block, headline "Know who's got next.", one-line pitch, big "Find a court" button, a scoreboard + line preview built from theme tokens. Anti-AI grep gate from docs.deep.space/design/anti-ai-gate: no hits (no hard-coded colors, no emoji, no stock phrases).
+- Own theme `court` (`src/themes.css`, `src/themes.ts`, `index.html` first paint): blue-black floor, chalk text, basketball orange. Display name "Got Next" in `src/constants.ts` and `wrangler.toml`; SEO description updated.
+- Empty/loading/error states on courts, court, game and cron pages (done in earlier phases, re-checked at 375 px wide).
+- `tests/court.spec.ts` now has 5 tests: check-in sync (<2 s), make-teams race, +2 live / Bob rejected / hand-off, finish 11-10 refused & 11-9 final, signed-out landing + every action returns 401. All `__test-<timestamp>__` data removed by `cleanupTestData`.
+- Live app seeded with seedDemo (GSU Rec, 12 guests, 3 games). A real recap regenerated on live in trash-talk tone with your account.
+- Live cron verified: added a 4-hour-old check-in at 03:54 UTC; at 04:09 UTC the logs show `[auto-checkout] removed 1 of 1 check-ins` and `[cron] auto-checkout ok 299ms`. Test guest then removed with cleanupTestData.
+
+Broke / fixed:
+- First full `npx deepspace test run e2e`: 7 failed (page.goto timeouts, "frame was detached", "context closed"). Cause: Playwright ran specs in parallel against one local server, and the multi-user specs share Alice/Bob. Fix: `workers: 1` in `tests/playwright.config.ts`.
+- Then 2 failed on a cold server (first visit compiles the route; 5 s expect timeout too short). Fix: `expect: { timeout: 15_000 }`. Result: 16/16 pass; unit tests 22/22.
+
+Check by hand:
+- Open https://gotnext-kobi.app.space signed out: landing page, "Find a court" shows GSU Rec, no "Add a court" button.

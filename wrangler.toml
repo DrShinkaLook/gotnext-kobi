@@ -28,7 +28,7 @@ run_worker_first = ["/api/*", "/ws/*", "/internal/*", "/v1/*", "/_deepspace/*", 
 # secrets, and collaborators all key to it. Renames are safe.
 [vars]
 DEEPSPACE_APP_ID = "app_01M80KR0A76S1TVB1ANS3HQHPK"
-APP_NAME = "gotnext-kobi"
+APP_NAME = "Got Next"
 # Exact comma-separated native callback URIs. Set this before deploying an
 # Expo client, for example: "myapp://auth/callback".
 NATIVE_AUTH_REDIRECT_URIS = ""

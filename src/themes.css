@@ -44,3 +44,31 @@
   --color-shell: #fafafa;
   --color-shell-panel: #ffffff;
 }
+
+/* Court — Got Next's own theme: a night court under the lights. Deep
+ * blue-black floor, chalk-white text, basketball-orange for the one action
+ * that matters on each screen. */
+[data-theme="court"] {
+  color-scheme: dark;
+  --color-background: #0e1116;
+  --color-foreground: #f3efe8;
+  --color-card: #171b22;
+  --color-card-foreground: #f3efe8;
+  --color-popover: #171b22;
+  --color-popover-foreground: #f3efe8;
+  --color-primary: #f26b1d;
+  --color-primary-foreground: #1a0d04;
+  --color-secondary: #232a34;
+  --color-secondary-foreground: #f3efe8;
+  --color-muted: #1d222b;
+  --color-muted-foreground: #a39d93;
+  --color-accent: #262d38;
+  --color-accent-foreground: #f3efe8;
+  --color-destructive: #e5484d;
+  --color-destructive-foreground: #ffffff;
+  --color-border: #2a313c;
+  --color-input: #343c48;
+  --color-ring: #f26b1d;
+  --color-shell: #0b0d11;
+  --color-shell-panel: #12161c;
+}

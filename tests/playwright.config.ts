@@ -22,6 +22,11 @@ export default defineConfig({
   testMatch: '**/*.spec.ts',
   timeout: 30_000,
   retries: 0,
+  // One at a time: the multi-user specs share the same test accounts and one
+  // local server, so parallel workers race each other and time out.
+  workers: 1,
+  // A fresh dev server compiles each route on first visit; give UI checks room.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: BASE_URL,
     headless: true,
