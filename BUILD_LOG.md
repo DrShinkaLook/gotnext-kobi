@@ -168,3 +168,6 @@ Built:
 
 Check by hand:
 - Do the 7 acceptance checks on the live URL in two browsers and tick them in WRITEUP.md.
+
+## Acceptance checks (done)
+- Kobi ran all 7 SPEC acceptance checks on the live URL in two browsers: all passed. Ticked in WRITEUP.md.

@@ -26,13 +26,13 @@ A coding agent wrote most of the code from my SPEC, logging each phase in BUILD_
 - CLI login failed under HTTPS scanning; fixed with `--use-system-ca`.
 
 ## What I verified
-- [ ] 1. A checks in; B sees it within 2 seconds
-- [ ] 2. Line filled to 10 with guests; Make teams is balanced
-- [ ] 3. Scorekeeper's +2 shows live for B; B can't change the score
-- [ ] 4. Finish at 11-9: ratings change, both see the recap
-- [ ] 5. Finish at 11-10 with win-by-2 is refused
-- [ ] 6. A 3-hour-old check-in disappears after the cron runs
-- [ ] 7. Signed-out visitor sees the landing page and can't write
+- [x] 1. A checks in; B sees it within 2 seconds
+- [x] 2. Line filled to 10 with guests; Make teams is balanced
+- [x] 3. Scorekeeper's +2 shows live for B; B can't change the score
+- [x] 4. Finish at 11-9: ratings change, both see the recap
+- [x] 5. Finish at 11-10 with win-by-2 is refused
+- [x] 6. A 3-hour-old check-in disappears after the cron runs
+- [x] 7. Signed-out visitor sees the landing page and can't write
 
 ## What I'd do next
 Leaderboard and profiles, a K-factor that shrinks with games played, court settings, and a hard lock so a double-tapped Finish can never apply ratings twice.
