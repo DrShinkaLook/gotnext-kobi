@@ -131,3 +131,16 @@ Broke / fixed:
 
 Check by hand:
 - Finish a real game at 11-9 with your own account: ratings change and a recap appears in both browsers. Try 11-10: refused.
+
+## Phase 9: Auto check-out cron (done)
+Built:
+- `src/cron.ts`: task `auto-checkout`, `intervalMinutes: 15`, using `buildCronContext(env, env.OWNER_USER_ID, 'app:<APP_ID>')`. Deletes check-ins older than 3 hours plus that player's waiting queue row; skips anyone in a live game. Logs `[auto-checkout] removed X of Y check-ins`.
+- `src/lib/checkout.ts` `staleCheckins()` (pure) with unit tests: old removed, fresh kept, old-but-playing kept, exactly-3h kept.
+- `npx deepspace add cron` added a 1-minute heartbeat and a `/cron-log` page; replaced both. New owner-only `/cron` page (`(protected)/cron.tsx`): task status, "Run now" (`useCronMonitor().trigger`), last 10 runs, and an "Add old check-in" helper (`addStaleCheckin` action, owner only) for acceptance check 6. Nav link shows only for admins.
+- Security: the docs say members can trigger cron by default. Changed `/ws/cron/:roomId` in `src/server/realtime-routes.ts` so only `OWNER_USER_ID` gets a writer role; everyone else is a read-only viewer at the CronRoom.
+
+Broke / fixed:
+- No CLI way to trigger a cron task, and test accounts can't (owner-only by design). Verified on the live app via logs instead (see Phase 10).
+
+Check by hand:
+- Signed in as owner, open Cron, tap "Add old check-in", see "Old timer" on GSU Rec, tap "Run now", and it disappears.

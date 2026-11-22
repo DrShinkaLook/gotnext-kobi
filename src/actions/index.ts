@@ -255,6 +255,19 @@ export const actions: Record<string, ActionHandler<Env>> = {
     return { success: true, data: { recap } }
   }),
 
+  /** Owner only, for checking auto-checkout: adds a guest who "checked in" 4 hours ago and is waiting in line. */
+  addStaleCheckin: action(async ({ userId, env, params, tools }) => {
+    if (userId !== env.OWNER_USER_ID) return fail('Only the app owner can do this')
+    const courtId = text(params.courtId, 64)
+    must(await tools.get<Court>('courts', courtId))
+    const name = `__test-${Date.now()}__ Old timer`
+    const playerId = await create(tools, 'players', { name, isGuest: true, addedBy: userId, rating: 1000, wins: 0, losses: 0 } satisfies Player)
+    const checkedInAt = Math.floor(Date.now() / 1000) - 4 * 60 * 60
+    await create(tools, 'checkins', { courtId, playerId, checkedInAt } satisfies Checkin)
+    await create(tools, 'queue', { courtId, playerId, status: 'waiting' } satisfies QueueEntry)
+    return { success: true, data: { playerId, name } }
+  }),
+
   /** Test cleanup: owner or @deepspace.test accounts only, and only rows named with the __test- prefix. */
   cleanupTestData: action(async ({ userId, env, tools }) => {
     const user = await tools.get<{ email?: string }>('users', userId)

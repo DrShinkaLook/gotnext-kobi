@@ -26,10 +26,29 @@
  *   }
  */
 
-import type { CronTask } from 'deepspace/worker'
+import { buildCronContext, type CronTask } from 'deepspace/worker'
+import type { Env } from '../worker'
+import { staleCheckins } from './lib/checkout'
+import type { Checkin, Game, QueueEntry } from './types'
 
-export const tasks: CronTask[] = []
+type Row<T> = { recordId: string; data: T }
 
-export async function runTask(_name: string, _env: unknown): Promise<void> {
-  // No-op — implement your cron tasks here. Dispatch on `_name`.
+export const tasks: CronTask[] = [{ name: 'auto-checkout', intervalMinutes: 15 }]
+
+/** auto-checkout: removes check-ins older than 3 hours and their waiting spot in line. Skips anyone in a live game. */
+export async function runTask(name: string, env: Env): Promise<void> {
+  if (name !== 'auto-checkout') return
+  const { records } = buildCronContext(env, env.OWNER_USER_ID, `app:${env.DEEPSPACE_APP_ID}`)
+
+  const checkins = (await records.query('checkins', { limit: 1000 })) as Row<Checkin>[]
+  const live = (await records.query('games', { where: { status: 'live' }, limit: 200 })) as Row<Game>[]
+  const playing = new Set(live.flatMap((g) => [...g.data.teamA, ...g.data.teamB]))
+
+  const stale = staleCheckins(checkins, playing, Math.floor(Date.now() / 1000))
+  for (const c of stale) {
+    const spots = (await records.query('queue', { where: { courtId: c.data.courtId, playerId: c.data.playerId }, limit: 5 })) as Row<QueueEntry>[]
+    for (const q of spots) if (q.data.status === 'waiting') await records.delete('queue', q.recordId)
+    await records.delete('checkins', c.recordId)
+  }
+  console.info(`[auto-checkout] removed ${stale.length} of ${checkins.length} check-ins`)
 }

@@ -3,6 +3,7 @@ import { balanceTeams } from './balance'
 import { average, expectedScore, newRating, teamDeltas } from './elo'
 import { hasWinner } from './score'
 import { isTone, recapPrompt } from './recap'
+import { staleCheckins } from './checkout'
 
 describe('balanceTeams', () => {
   const ratings = [850, 900, 950, 1000, 1020, 1050, 1100, 1150, 1200, 1250]
@@ -70,5 +71,19 @@ describe('recapPrompt', () => {
     expect(prompt).toContain('Team A +14, Team B -14')
     expect(isTone('stats')).toBe(true)
     expect(isTone('rude')).toBe(false)
+  })
+})
+
+describe('staleCheckins', () => {
+  const now = 1_000_000
+  const row = (id: string, playerId: string, ageSeconds: number) => ({ recordId: id, data: { playerId, checkedInAt: now - ageSeconds } })
+
+  it('removes check-ins older than 3 hours but never players in a live game', () => {
+    const rows = [row('old', 'p1', 4 * 3600), row('fresh', 'p2', 3600), row('playing', 'p3', 5 * 3600)]
+    expect(staleCheckins(rows, new Set(['p3']), now).map((r) => r.recordId)).toEqual(['old'])
+  })
+
+  it('keeps a check-in at exactly 3 hours', () => {
+    expect(staleCheckins([row('edge', 'p1', 3 * 3600)], new Set(), now)).toEqual([])
   })
 })
