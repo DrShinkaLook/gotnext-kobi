@@ -46,3 +46,23 @@ Broke / fixed:
 
 Check by hand:
 - Run `npm run test:unit` in the gotnext-kobi folder: all tests pass.
+
+## Phase 4: Players, court list, seed data (done, deployed)
+Built:
+- `src/actions/index.ts`: `ensurePlayer` (creates players/<userId> only when the get returns RECORD_NOT_FOUND, so a hiccup can't reset a rating) and `seedDemo` (owner only via `env.OWNER_USER_ID`; GSU Rec, 12 guests rated 850-1250, 3 final games with recaps; running it twice does nothing).
+- `src/api.ts` `callAction()` helper (fetch + `getAuthToken`).
+- `src/components/EnsurePlayer.tsx`, mounted in `(app)/_layout.tsx`, calls ensurePlayer once per sign-in.
+- `src/pages/(app)/courts.tsx`: live court list with "here" and "in line" counts via `useQuery`, loading/error/empty states, owner-only "Seed demo data" button.
+- `/home` now redirects to `/courts`; nav shows Courts.
+
+Broke / fixed:
+- `tsc`: `interface` types don't satisfy `Record<string, unknown>` in `tools.get<T>`. Switched `src/types.ts` to `type` aliases.
+- Browser pane preview couldn't find `.claude/launch.json` (it looks in the parent folder). Added one in `Basketball/.claude/` that runs `npm --prefix gotnext-kobi run dev` with `NODE_OPTIONS=--use-system-ca`.
+
+Verified locally:
+- seedDemo as owner: created; second run: `alreadySeeded: true`; signed out: `Unauthorized`.
+- ensurePlayer: `created: true`, then `created: false`.
+- /courts signed out lists GSU Rec with 0 here / 0 in line, no console errors.
+
+Check by hand:
+- Sign in on the live site, open Courts, click "Seed demo data" once, see GSU Rec appear.
